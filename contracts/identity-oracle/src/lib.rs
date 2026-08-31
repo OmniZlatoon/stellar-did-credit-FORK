@@ -1267,7 +1267,6 @@ impl IdentityOracle {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::testutils::storage::Persistent as _;
 
     #[contract]
     pub struct MockRevocationRegistry;
