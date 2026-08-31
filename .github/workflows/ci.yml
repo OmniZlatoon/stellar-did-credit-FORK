@@ -245,7 +245,14 @@ jobs:
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build contracts (release)
-        run: cargo build --target wasm32-unknown-unknown --release --workspace
+        run: >-
+          cargo build --target wasm32-unknown-unknown --release
+          -p identity-oracle
+          -p credit-oracle
+          -p credit-oracle-types
+          -p revocation-registry
+          -p score-range-verifier
+          -p governance
 
       - name: Check WASM binary sizes
         run: |
