@@ -1135,14 +1135,20 @@ mod tests {
         let proposer = Address::generate(&env);
         let proposal_id = gov_client.create_proposal(&proposer, &proposed_weights, &100, &0);
         let voter = Address::generate(&env);
-        let overflow_voter = Address::generate(&env);
-        gov_client.register_voter(&admin, &voter, &i128::MAX);
-        gov_client.register_voter(&admin, &overflow_voter, &1);
+        gov_client.register_voter(&admin, &voter, &1);
 
-        let result = gov_client.try_vote(&voter, &proposal_id, &true, &i128::MAX);
-        assert_eq!(result, Ok(Ok(())));
+        env.as_contract(&gov_id, || {
+            let proposal_key = DataKey::Proposal(proposal_id);
+            let mut proposal: GovernanceProposal = env
+                .storage()
+                .persistent()
+                .get(&proposal_key)
+                .unwrap();
+            proposal.votes_for = i128::MAX;
+            env.storage().persistent().set(&proposal_key, &proposal);
+        });
 
-        let result = gov_client.try_vote(&overflow_voter, &proposal_id, &true, &1);
+        let result = gov_client.try_vote(&voter, &proposal_id, &true, &1);
         assert_eq!(result, Err(Ok(GovernanceError::VoteTallyOverflow)));
     }
 
