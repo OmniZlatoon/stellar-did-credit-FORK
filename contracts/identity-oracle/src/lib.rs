@@ -351,9 +351,11 @@ fn compute_active_vc_count(env: &Env, subject: &Address) -> u32 {
 
 fn seed_active_vc_count(env: &Env, subject: &Address) -> u32 {
     let count = compute_active_vc_count(env, subject);
+    let key = DataKey::ActiveVCCount(subject.clone());
+    env.storage().persistent().set(&key, &count);
     env.storage()
         .persistent()
-        .set(&DataKey::ActiveVCCount(subject.clone()), &count);
+        .extend_ttl(&key, PERS_TTL_THRESHOLD, PERS_TTL_EXTEND);
     count
 }
 
@@ -821,9 +823,11 @@ impl IdentityOracle {
                     .checked_add(1)
                     .expect("active VC count overflow");
             }
+            let active_key = DataKey::ActiveVCCount(subject.clone());
+            env.storage().persistent().set(&active_key, &active_count);
             env.storage()
                 .persistent()
-                .set(&DataKey::ActiveVCCount(subject.clone()), &active_count);
+                .extend_ttl(&active_key, PERS_TTL_THRESHOLD, PERS_TTL_EXTEND);
         } else {
             seed_active_vc_count(&env, &subject);
         }
@@ -1006,7 +1010,15 @@ impl IdentityOracle {
     }
 
     pub fn get_active_vc_count(env: Env, subject: Address) -> u32 {
-        load_active_vc_count(&env, &subject).unwrap_or_else(|| seed_active_vc_count(&env, &subject))
+        let key = DataKey::ActiveVCCount(subject.clone());
+        if let Some(count) = env.storage().persistent().get(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERS_TTL_THRESHOLD, PERS_TTL_EXTEND);
+            return count;
+        }
+
+        seed_active_vc_count(&env, &subject)
     }
 
     /// Returns active (non-revoked) VC anchor records for `subject`.
@@ -1251,7 +1263,7 @@ impl IdentityOracle {
 #[allow(deprecated)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Ledger};
 
     #[contract]
     pub struct MockRevocationRegistry;
@@ -1650,6 +1662,38 @@ mod tests {
         // Count should be 1, not 2
         assert_eq!(client.get_total_vc_count(&subject), 1);
         assert_eq!(client.get_active_vc_count(&subject), 1);
+    }
+
+    #[test]
+    fn test_get_active_vc_count_survives_extended_ttl() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, IdentityOracle);
+        let client = IdentityOracleClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        let subject = Address::generate(&env);
+
+        client.initialize(&admin);
+        client.register_issuer(&issuer);
+
+        let vc_hash_1 = BytesN::from_array(&env, &[1u8; 32]);
+        let vc_hash_2 = BytesN::from_array(&env, &[2u8; 32]);
+        client.anchor_vc(&issuer, &subject, &vc_hash_1);
+        client.anchor_vc(&issuer, &subject, &vc_hash_2);
+
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .extend_ttl(6_000_000, 6_000_000);
+        });
+
+        env.ledger().with_mut(|l| {
+            l.sequence_number += PERS_TTL_EXTEND - 1;
+        });
+
+        assert_eq!(client.get_active_vc_count(&subject), 2);
     }
 
     #[test]

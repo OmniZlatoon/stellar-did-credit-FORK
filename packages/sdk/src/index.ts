@@ -834,10 +834,7 @@ export class StellarDIDCreditSDK {
           "Cooldown period is active. Please wait for the cooldown ledgers to pass before recomputing the score.",
         );
       }
-      throw new SDKError(
-        "TRANSACTION_FAILED",
-        `Simulation failed: ${sim.error}`,
-      );
+      throwContractError(sim.error ?? "Simulation failed", "credit-oracle");
     }
 
     if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
@@ -879,7 +876,7 @@ export class StellarDIDCreditSDK {
         txHash,
         "computeScore",
         getConfirmationTimeoutMs(this.config),
-        this.config.pollIntervalMs ?? 1000,
+        getTransactionPollIntervalMs(this.config),
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -891,13 +888,6 @@ export class StellarDIDCreditSDK {
       }
       throw error;
     }
-    await waitForTransactionConfirmation(
-      this.server,
-      txHash,
-      "computeScore",
-      getConfirmationTimeoutMs(this.config),
-      getTransactionPollIntervalMs(this.config),
-    );
 
     try {
       const score = await this.getScore(subjectAddress);

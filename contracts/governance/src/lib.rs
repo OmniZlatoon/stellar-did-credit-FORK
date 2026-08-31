@@ -44,6 +44,8 @@ pub enum GovernanceError {
     NoPendingWeights = 15,
     /// The credit-oracle is paused and cannot apply weights.
     ContractPaused = 16,
+    /// The vote would overflow the proposal's tally.
+    VoteTallyOverflow = 17,
 }
 
 /// Storage keys for the governance contract.
@@ -372,11 +374,18 @@ impl Governance {
             return Err(GovernanceError::ProposalAlreadyCancelled);
         }
 
-        // Update vote totals
+        // Reject votes that would overflow a proposal tally instead of
+        // silently saturating and potentially bypassing quorum.
         if vote_for {
-            proposal.votes_for = proposal.votes_for.saturating_add(vote_weight);
+            proposal.votes_for = proposal
+                .votes_for
+                .checked_add(vote_weight)
+                .ok_or(GovernanceError::VoteTallyOverflow)?;
         } else {
-            proposal.votes_against = proposal.votes_against.saturating_add(vote_weight);
+            proposal.votes_against = proposal
+                .votes_against
+                .checked_add(vote_weight)
+                .ok_or(GovernanceError::VoteTallyOverflow)?;
         }
 
         // Update used weight for this voter on this proposal
@@ -1103,6 +1112,44 @@ mod tests {
 
         let res = gov_client.try_vote(&voter, &proposal_id, &true, &-10);
         assert_eq!(res, Err(Ok(GovernanceError::InvalidVoteWeight)));
+    }
+
+    #[test]
+    fn test_vote_rejects_tally_overflow() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let credit_oracle_id = env.register_contract(None, CreditOracle);
+        CreditOracleClient::new(&env, &credit_oracle_id).initialize(&admin);
+
+        let gov_id = env.register_contract(None, Governance);
+        let gov_client = GovernanceClient::new(&env, &gov_id);
+        gov_client.initialize(&admin, &credit_oracle_id, &500);
+
+        let proposed_weights = ScoringWeights {
+            vc_weight: 40,
+            tx_weight: 30,
+            repayment_weight: 30,
+        };
+        let proposer = Address::generate(&env);
+        let proposal_id = gov_client.create_proposal(&proposer, &proposed_weights, &100, &0);
+        let voter = Address::generate(&env);
+        gov_client.register_voter(&admin, &voter, &1);
+
+        env.as_contract(&gov_id, || {
+            let proposal_key = DataKey::Proposal(proposal_id);
+            let mut proposal: GovernanceProposal = env
+                .storage()
+                .persistent()
+                .get(&proposal_key)
+                .unwrap();
+            proposal.votes_for = i128::MAX;
+            env.storage().persistent().set(&proposal_key, &proposal);
+        });
+
+        let result = gov_client.try_vote(&voter, &proposal_id, &true, &1);
+        assert_eq!(result, Err(Ok(GovernanceError::VoteTallyOverflow)));
     }
 
     #[test]
