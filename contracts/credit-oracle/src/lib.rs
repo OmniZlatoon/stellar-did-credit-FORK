@@ -1743,7 +1743,7 @@ mod tests {
         let admin = Address::generate(&env);
         client.initialize(&admin);
 
-        let w = client.get_scoring_weights().unwrap();
+        let w = client.get_scoring_weights();
         assert_eq!(w.vc_weight + w.tx_weight + w.repayment_weight, 100);
     }
 
@@ -2143,7 +2143,7 @@ mod tests {
         let admin = Address::generate(&env);
         client.initialize(&admin);
 
-        let original_weights = client.get_scoring_weights().unwrap();
+        let original_weights = client.get_scoring_weights();
         assert_eq!(original_weights.vc_weight, 40);
 
         client.propose_weights(&ScoringWeights {
@@ -2237,7 +2237,7 @@ mod tests {
             .set_sequence_number(env.ledger().sequence() + jump);
         client.apply_weights();
 
-        let w = client.get_scoring_weights().unwrap();
+        let w = client.get_scoring_weights();
         assert_eq!(w.vc_weight, 50);
         assert_eq!(w.tx_weight, 25);
         assert_eq!(w.repayment_weight, 25);
